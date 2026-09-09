@@ -25,7 +25,13 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 import { Trend, Rate, Counter } from "k6/metrics";
 import { SharedArray } from "k6/data";
-import { BASE_URL, VAULT_ID, jsonHeaders, pick, loadAccounts } from "./lib/config.js";
+import {
+  BASE_URL,
+  VAULT_ID,
+  jsonHeaders,
+  pick,
+  loadAccounts,
+} from "./lib/config.js";
 
 const accounts = new SharedArray("accounts", function () {
   return loadAccounts(open);
