@@ -65,6 +65,10 @@ export default defineConfig({
             text: "Admin-Event Alert Keeper",
             link: "/operations/alert-keeper",
           },
+          {
+            text: "Incident Response",
+            link: "/operations/incident-response",
+          },
         ],
       },
     ],
