@@ -52,6 +52,27 @@ if (!CRON_SECRET) {
 const claimedOrRan = new Counter("keeper_claimed_or_ran");
 const disabledOrSkipped = new Counter("keeper_disabled_or_skipped");
 
+// Parses a k6 duration string built from (\d+)(h|m|s) chunks (e.g. "30s",
+// "1m", "1m30s") into whole seconds. Only covers the units this script's
+// DURATION tunable actually needs; not a general k6 duration parser.
+function durationToSeconds(duration) {
+  let seconds = 0;
+  for (const [, amount, unit] of String(duration).matchAll(/(\d+)(h|m|s)/g)) {
+    const n = Number(amount);
+    if (unit === "h") seconds += n * 3600;
+    else if (unit === "m") seconds += n * 60;
+    else seconds += n;
+  }
+  return seconds;
+}
+
+const HEALTH_DURATION = __ENV.DURATION || "30s";
+// Buffer past health's own duration so the two scenarios never overlap and
+// share the strict rate-limit budget, even with an overridden DURATION.
+const CONCURRENT_START_BUFFER_S = 5;
+const CONCURRENT_START_S =
+  durationToSeconds(HEALTH_DURATION) + CONCURRENT_START_BUFFER_S;
+
 export const options = {
   scenarios: {
     health: {
@@ -59,7 +80,7 @@ export const options = {
       exec: "health",
       rate: Number(__ENV.HEALTH_RPS || 1),
       timeUnit: "1s",
-      duration: __ENV.DURATION || "30s",
+      duration: HEALTH_DURATION,
       preAllocatedVUs: 10,
       maxVUs: 50,
     },
@@ -69,9 +90,10 @@ export const options = {
       vus: Number(__ENV.CONCURRENCY || 5),
       iterations: Number(__ENV.CONCURRENCY || 5),
       maxDuration: "60s",
-      // Starts after the health scenario finishes so the two don't share
-      // the strict rate-limit budget.
-      startTime: "35s",
+      // Derived from health's own DURATION (plus a buffer) instead of a
+      // hardcoded value, so an overridden -e DURATION=... can't make the two
+      // scenarios overlap and share the strict rate-limit budget.
+      startTime: `${CONCURRENT_START_S}s`,
     },
   },
 };
@@ -106,10 +128,30 @@ export function invokeConcurrently() {
     // leave body null and fall through to the "claimed or ran" bucket below.
   }
 
-  if (body && body.status === "disabled") {
-    // Keeper is intentionally unconfigured on this deployment (missing
-    // secret key) — expected on a deployment that hasn't set one up, not a
-    // race outcome.
+  // Unlike alert/rebalance, accrue has no isConfigured guard in
+  // api/v1/keepers/[action].ts: a missing MERIDIAN_KEEPER_SECRET_KEY makes
+  // loadBlendAccrualKeeperConfig throw, which the handler's catch turns into
+  // a 500 { error: ... } response — no `status` field, and no `failures`
+  // field either (unlike a genuine run failure, which is still a result
+  // object with `failures`). Without this check that config-error 500 would
+  // silently count as "claimed or ran" even though the request never
+  // reached the submission lease, so the probe would report a pass while
+  // testing nothing.
+  const isConfigError =
+    res.status >= 500 &&
+    body &&
+    body.error !== undefined &&
+    body.failures === undefined;
+
+  check(res, {
+    "keeper: action is configured on this deployment (not a config error)":
+      () => !isConfigError,
+  });
+
+  if ((body && body.status === "disabled") || isConfigError) {
+    // Either explicitly disabled (alert/rebalance's isConfigured guard), or
+    // accrue's equivalent-in-effect config error above — expected on a
+    // deployment that hasn't set the relevant secret up, not a race outcome.
     disabledOrSkipped.add(1);
   } else {
     claimedOrRan.add(1);
