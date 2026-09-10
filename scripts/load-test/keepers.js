@@ -51,19 +51,25 @@ if (!CRON_SECRET) {
 
 const claimedOrRan = new Counter("keeper_claimed_or_ran");
 const disabledOrSkipped = new Counter("keeper_disabled_or_skipped");
+const networkFailures = new Counter("keeper_network_failures");
 
-// Parses a k6 duration string built from (\d+)(h|m|s) chunks (e.g. "30s",
-// "1m", "1m30s") into whole seconds. Only covers the units this script's
+// Parses a k6 duration string built from (\d+)(ms|h|m|s) chunks (e.g.
+// "30s", "1m", "1m30s", "500ms") into whole seconds, rounded up. "ms" must
+// be checked before the bare "m" alternative, otherwise "500ms" matches "m"
+// first and is misread as 500 minutes. Only covers the units this script's
 // DURATION tunable actually needs; not a general k6 duration parser.
 function durationToSeconds(duration) {
   let seconds = 0;
-  for (const [, amount, unit] of String(duration).matchAll(/(\d+)(h|m|s)/g)) {
+  for (const [, amount, unit] of String(duration).matchAll(
+    /(\d+)(ms|h|m|s)/g
+  )) {
     const n = Number(amount);
     if (unit === "h") seconds += n * 3600;
     else if (unit === "m") seconds += n * 60;
+    else if (unit === "ms") seconds += n / 1000;
     else seconds += n;
   }
-  return seconds;
+  return Math.ceil(seconds);
 }
 
 const HEALTH_DURATION = __ENV.DURATION || "30s";
@@ -124,8 +130,17 @@ export function invokeConcurrently() {
   try {
     body = res.json();
   } catch {
-    // Non-JSON error page (e.g. a 5xx from the platform, not the app) —
-    // leave body null and fall through to the "claimed or ran" bucket below.
+    // Either a true network failure (res.status === 0: DNS failure,
+    // connection refused, timeout) or a non-JSON error page from the
+    // platform rather than the app. Either way the request never reached
+    // the keeper handler, so it must not fall through to "claimed or ran"
+    // below: that counter is what this probe checks against on-chain
+    // history, and a request that never arrived can't have raced anything.
+    networkFailures.add(1);
+    check(res, {
+      "keeper: got a real response (not a network failure)": () => false,
+    });
+    return;
   }
 
   // Unlike alert/rebalance, accrue has no isConfigured guard in

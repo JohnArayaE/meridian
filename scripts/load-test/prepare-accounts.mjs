@@ -39,21 +39,32 @@ async function fund(publicKey) {
   }
 }
 
+// How many Friendbot requests to have in flight at once. Each is
+// independent, so there's no correctness reason to fund sequentially, but
+// firing all of them at once risks tripping Friendbot's own rate limiting.
+const FUND_CONCURRENCY = 10;
+
 async function main() {
   console.log(`Generating and funding ${count} throwaway testnet accounts...`);
+  const keypairs = Array.from({ length: count }, () => Keypair.random());
   const accounts = [];
 
-  for (let i = 0; i < count; i++) {
-    const kp = Keypair.random();
-    process.stdout.write(`  [${i + 1}/${count}] ${kp.publicKey()} ... `);
-    try {
-      await fund(kp.publicKey());
-      console.log("funded");
-      accounts.push({ publicKey: kp.publicKey(), secret: kp.secret() });
-    } catch (err) {
-      console.log("FAILED");
-      console.error(`    ${err.message}`);
-    }
+  for (let i = 0; i < keypairs.length; i += FUND_CONCURRENCY) {
+    const batch = keypairs.slice(i, i + FUND_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map((kp) => fund(kp.publicKey()))
+    );
+    results.forEach((result, j) => {
+      const kp = batch[j];
+      const n = i + j + 1;
+      if (result.status === "fulfilled") {
+        console.log(`  [${n}/${count}] ${kp.publicKey()} ... funded`);
+        accounts.push({ publicKey: kp.publicKey(), secret: kp.secret() });
+      } else {
+        console.log(`  [${n}/${count}] ${kp.publicKey()} ... FAILED`);
+        console.error(`    ${result.reason.message}`);
+      }
+    });
   }
 
   if (accounts.length === 0) {
