@@ -20,6 +20,14 @@
 //   k6 run -e BASE_URL=https://your-preview.vercel.app scripts/load-test/deposit-withdraw.js
 //
 // Tunables (all optional): VUS, DEPOSIT_AMOUNT, WITHDRAW_SHARES, ACCOUNTS_FILE
+//
+// The default VUS is intentionally conservative (1, ~1 req/s with the
+// sleep(1) below) to stay under the API's 100 req/60s per-client-IP limit
+// (api/_lib/middleware.ts, LIMIT). At the previous default of 20, most
+// requests were rejected as 429 before ever reaching Soroban simulation, so
+// the run didn't actually exercise the 500-on-unfunded-account path this
+// script (and the README section below) describes. Pass -e VUS=... to push
+// past that budget on purpose.
 
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -28,13 +36,14 @@ import { SharedArray } from "k6/data";
 import {
   BASE_URL,
   VAULT_ID,
+  ACCOUNTS_FILE,
   jsonHeaders,
   pick,
-  loadAccounts,
+  parseAccounts,
 } from "./lib/config.js";
 
 const accounts = new SharedArray("accounts", function () {
-  return loadAccounts(open);
+  return parseAccounts(open(ACCOUNTS_FILE));
 });
 
 const depositDuration = new Trend("deposit_duration_ms", true);
@@ -42,7 +51,7 @@ const withdrawDuration = new Trend("withdraw_duration_ms", true);
 const rateLimited = new Rate("rate_limited_responses");
 const serverErrors = new Counter("server_errors_5xx");
 
-const VUS = Number(__ENV.VUS || 20);
+const VUS = Number(__ENV.VUS || 1);
 
 export const options = {
   scenarios: {

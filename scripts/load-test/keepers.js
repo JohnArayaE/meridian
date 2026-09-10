@@ -30,6 +30,12 @@
 //
 // Tunables (all optional): HEALTH_RPS, DURATION, CONCURRENCY, KEEPER_ACTION
 // (accrue | rebalance | alert, default accrue)
+//
+// health's default HEALTH_RPS is intentionally conservative (1 req/s =
+// 60/min) to stay under the API's 100 req/60s per-client-IP limit
+// (api/_lib/middleware.ts, LIMIT), so the "health: 200" check below passes
+// out of the box. Pass -e HEALTH_RPS=... to push past that budget on
+// purpose.
 
 import http from "k6/http";
 import { check } from "k6";
@@ -51,7 +57,7 @@ export const options = {
     health: {
       executor: "constant-arrival-rate",
       exec: "health",
-      rate: Number(__ENV.HEALTH_RPS || 10),
+      rate: Number(__ENV.HEALTH_RPS || 1),
       timeUnit: "1s",
       duration: __ENV.DURATION || "30s",
       preAllocatedVUs: 10,

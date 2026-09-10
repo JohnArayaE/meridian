@@ -34,8 +34,15 @@ export function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function loadAccounts(openFn) {
-  const data = JSON.parse(openFn(ACCOUNTS_FILE));
+// Takes the raw string already read by the caller's own `open(ACCOUNTS_FILE)`
+// call, rather than taking `open` itself and calling it in here. k6's `open`
+// is resolved relative to the file it's textually written in (currently the
+// caller's directory; a future k6 version will align this with import/require
+// resolution instead — see the `open()` deprecation warning), so each script
+// must call `open(ACCOUNTS_FILE)` itself at its own top level, not hand the
+// function across this module boundary.
+export function parseAccounts(raw) {
+  const data = JSON.parse(raw);
   if (!data.accounts || data.accounts.length === 0) {
     throw new Error(
       `${ACCOUNTS_FILE} has no accounts. Run ` +

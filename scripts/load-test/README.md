@@ -89,7 +89,7 @@ To also exercise the 200 success path, fund a subset of the generated
 accounts with testnet USDC via <https://testnet.blend.capital> (Blend's own
 faucet; the default `fundFromBlendFaucet()` flow has not reliably granted
 USDC in practice — see
-[`testnet-deployment.md`](../../apps/docs/operations/testnet-deployment.md#getting-testnet-usdc`)),
+[`testnet-deployment.md`](../../apps/docs/operations/testnet-deployment.md#getting-testnet-usdc)),
 and use a `DEPOSIT_AMOUNT` within that balance.
 
 ## Running the scripts

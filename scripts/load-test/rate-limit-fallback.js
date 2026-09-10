@@ -40,10 +40,10 @@ import http from "k6/http";
 import { check } from "k6";
 import { Counter } from "k6/metrics";
 import { SharedArray } from "k6/data";
-import { BASE_URL, pick, loadAccounts } from "./lib/config.js";
+import { BASE_URL, ACCOUNTS_FILE, pick, parseAccounts } from "./lib/config.js";
 
 const accounts = new SharedArray("accounts", function () {
-  return loadAccounts(open);
+  return parseAccounts(open(ACCOUNTS_FILE));
 });
 
 const allowed = new Counter("rate_limit_allowed");
